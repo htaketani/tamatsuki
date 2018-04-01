@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tamatsuki</title>
+<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/css/bootstrap.min.css" />
+<script type="text/javascript" src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.1/jquery.min.js"></script>
+<script type="text/javascript" src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/js/bootstrap.min.js"></script>
+<script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/vue/2.5.16/vue.min.js"></script>
+<script type="text/javascript" src="https://unpkg.com/viz.js@1.8.0"></script>
+<script type="text/javascript" src="https://cdn.jsdelivr.net/npm/lodash@4.17.5/lodash.min.js"></script>
+<style>
+</style>
+</head>
+<body>
+<div class="jumbotron">
+<div class="container">
+<h1>Tamatsuki</h1>
+お引っ越し玉突きグラフ作成ツール
+
+<div id="g1">
+<br>
+
+<h2>玉突き定義</h2>
+移動の定義をタブ区切りテキストで入力してください。<br>
+フォーマット:「名前&lt;tab&gt;現在の場所&lt;tab&gt;次の場所&lt;改行&gt;」<br>
+※ExcelやGoogle スプレッドシートの表をCopy＆Pasteすると楽に記述できます。<br>
+<p>
+<textarea v-model="input"  cols="50" rows="5"></textarea><br>
+<!--<textarea v&#45;model="debug"  cols="150" rows="20"></textarea><br>-->
+<!--<textarea v&#45;model="dotScript"  cols="50" rows="5"></textarea><br>-->
+</p>
+
+<hr>
+
+<h2>玉突きグラフ</h2>
+<input type="checkbox" id="withStayNodes" value="checked" v-model="withStayNodes">
+<label for="withStayNodes">移動しないノードも描画する</label>
+<button v-on:click="openSvg" class="btn btn-primary">別タブで開く(SVG)</button>
+<button v-on:click="openPng" class="btn btn-primary">別タブで開く(PNG)</button><br>
+プレビュー<br>
+<div class="graph" v-html="svg"></div>
+※各ノードは自動配置されます。位置などの制御はできません。
+
+</div>
+
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+
+demo site: <a href="https://htaketani.github.io/tamatsuki/">https://htaketani.github.io/tamatsuki/</a><br>
+作った人: <a href="https://github.com/htaketani">htaketani</a><br>
+</div>
+</div>
+</body>
+<script type="text/javascript">
+
+let openImage = function(image) {
+  let w = window.open('about:blank');
+  w.document.body.appendChild(image);
+};
+
+new Vue({
+  el: '#g1',
+  data: {
+    input:
+`セイバー	1F-01	1F-02
+オルタ	1F-05	1F-03
+マシュ	1F-06	1F-06
+リリィ	1F-02	2F-20
+スカサハ	西館南	別館東
+酒呑童子	2F-10	1F-05
+イシュタル	別館東	東館北
+ニトクリス	4F-01	4F-01
+えっちゃん	1F-04	2F-10
+ネロ	東館北	西館南
+玉藻の前	2F-20	2F-30
+
+`,
+    withStayNodes: 'checked'
+  },
+  computed: {
+    nodes: function() {
+      let i = 0;
+      return _(this.input.split("\n"))
+        .map(line => line.split("\t"))
+        .map(cols => _(['name', 'location', 'next']).zipObject(cols).value())
+        .map(node => Object.assign(node, {id: `n${++i}`, isStay: node.location == node.next}))
+        .filter(node => node.name && node.location && node.next)
+        .value();
+    },
+    nodeMap: function() {
+      let nodeMap = {};
+      _(this.nodes)
+        .each(node => nodeMap[node.location] = node);
+      return nodeMap;
+    },
+    emptyNodes: function() {
+      let nodeMap = this.nodeMap;
+      return _(this.nodes)
+        .filter(node => !nodeMap[node.next])
+        .map(node => { return {id: `e${node.id}`, name: '(empty)', location: node.next} })
+        .value();
+    },
+    emptyNodeMap: function() {
+      let emptyNodeMap = {};
+      _(this.emptyNodes)
+        .each(node => emptyNodeMap[node.location] = node);
+      return emptyNodeMap;
+    },
+    allNodeMap: function() {
+      return Object.assign({}, this.nodeMap, this.emptyNodeMap);
+    },
+    moves: function() {
+      let allNodeMap = this.allNodeMap;
+      return _(this.nodes)
+        .filter(node => !node.isStay)
+        .map(node => { return {location: node, next: allNodeMap[node.next]} })
+        .value();
+    },
+    allNodes: function() {
+      return [].concat(this.nodes, this.emptyNodes);
+    },
+    dotScriptAllNodes: function() {
+      return _(this.allNodes)
+        .filter(node => this.withStayNodes || !node.isStay)
+        .map(node => `${node.id} [label = "${node.location}\n${node.name}"];\n`)
+        .join('');
+    },
+    dotScriptMoves: function() {
+      return _(this.moves)
+        .map(move => `${move.location.id} -> ${move.next.id};\n`)
+        .join('');
+    },
+    debug: function() {
+      let debug = {
+        //nodes: this.nodes,
+        //allNodeMap: this.allNodeMap,
+        //emptyNodeMap: this.emptyNodeMap,
+        //moves: this.moves,
+        //dotScriptAllNodes: this.dotScriptAllNodes,
+        //dotScriptMoves: this.dotScriptMoves,
+        dotScript: this.dotScript,
+      };
+      console.log(debug);
+      return JSON.stringify(debug);
+    },
+    dotScript: function() {
+      return `digraph tamatsuki {
+graph [
+  charset = "UTF-8",
+  rankdir = LR,
+];
+${this.dotScriptAllNodes}
+${this.dotScriptMoves}
+}`;
+      return this.input;
+    },
+    svg: function() {
+      return Viz(this.dotScript, {format: 'svg'});
+    },
+    svgImage: function() {
+      let uri = 'data:image/svg+xml;utf8,' + this.svg;
+      let image = document.createElement('img');
+      image.setAttribute('src', uri);
+      return image;
+    },
+    pngImage: function() {
+      let image = Viz(this.dotScript, {format: 'png-image-element'});
+      return image;
+    }
+  },
+  methods: {
+    openSvg: function() {
+      openImage(this.svgImage);
+    },
+    openPng: function() {
+      openImage(this.pngImage);
+    }
+  }
+});
+
+</script>
+</html>
